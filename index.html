@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>距离不止是距离</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --green: #00ff41;
+      --green-dim: rgba(0,255,65,0.5);
+      --green-faint: rgba(0,255,65,0.15);
+    }
+
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', monospace;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* ── 矩阵画布 ── */
+    #matrixCanvas {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    /* ── 顶部扫描线 ── */
+    #scanline {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 2px;
+      background: linear-gradient(90deg, transparent 0%, var(--green) 50%, transparent 100%);
+      opacity: 0.4;
+      z-index: 5;
+      animation: scanline 6s linear infinite;
+    }
+    @keyframes scanline {
+      0%   { top: 0; opacity: 0.4; }
+      100% { top: 100vh; opacity: 0.1; }
+    }
+
+    /* ── UI 层 ── */
+    #ui {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── 开始按钮 ── */
+    #startBtn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      cursor: pointer;
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%,100% { transform: translateY(0); }
+      50%      { transform: translateY(-10px); }
+    }
+    #startBtn .ring {
+      width: 120px; height: 120px;
+      border-radius: 50%;
+      border: 1px solid var(--green-dim);
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+      box-shadow: 0 0 30px var(--green-faint), inset 0 0 30px var(--green-faint);
+      transition: all 0.3s;
+    }
+    #startBtn .ring::before,
+    #startBtn .ring::after {
+      content: '';
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid var(--green-dim);
+      animation: ripple 2.5s linear infinite;
+    }
+    #startBtn .ring::before { width: 100%; height: 100%; animation-delay: 0s; }
+    #startBtn .ring::after  { width: 100%; height: 100%; animation-delay: 1.25s; }
+    @keyframes ripple {
+      0%   { transform: scale(1);   opacity: 0.8; }
+      100% { transform: scale(1.8); opacity: 0; }
+    }
+    #startBtn .ring .arrow {
+      font-size: 36px;
+      color: var(--green);
+      text-shadow: 0 0 20px var(--green);
+    }
+    #startBtn .hint {
+      color: var(--green-dim);
+      font-size: 13px;
+      letter-spacing: 5px;
+    }
+    #startBtn:hover .ring {
+      box-shadow: 0 0 60px rgba(0,255,65,0.4), inset 0 0 40px rgba(0,255,65,0.1);
+    }
+
+    /* ── 加载状态 ── */
+    #loading {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+    .loading-text {
+      color: var(--green-dim);
+      font-size: 13px;
+      letter-spacing: 5px;
+    }
+    .loading-bar {
+      width: 220px; height: 1px;
+      background: rgba(0,255,65,0.15);
+      overflow: hidden;
+    }
+    .loading-bar::after {
+      content: '';
+      display: block;
+      width: 40%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, var(--green), transparent);
+      animation: bar-move 1.2s ease-in-out infinite;
+    }
+    @keyframes bar-move {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(350%); }
+    }
+
+    /* ── 主信息卡 ── */
+    #card {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      width: min(580px, 92vw);
+      padding: clamp(28px, 5vw, 52px) clamp(24px, 6vw, 64px);
+      background: rgba(0,0,0,0.82);
+      border: 1px solid rgba(0,255,65,0.25);
+      border-radius: 4px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow:
+        0 0 0 1px rgba(0,255,65,0.04),
+        0 0 60px rgba(0,255,65,0.08),
+        0 0 120px rgba(0,255,65,0.04);
+      animation: card-in 0.7s cubic-bezier(0.22,1,0.36,1) both;
+    }
+    @keyframes card-in {
+      from { opacity: 0; transform: scale(0.94) translateY(16px); }
+      to   { opacity: 1; transform: scale(1)    translateY(0); }
+    }
+
+    /* 卡头部装饰 */
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+      width: 100%;
+      justify-content: center;
+    }
+    .card-header .line {
+      flex: 1;
+      max-width: 60px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(0,255,65,0.4));
+    }
+    .card-header .line.right { background: linear-gradient(90deg, rgba(0,255,65,0.4), transparent); }
+    .card-header .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .card-header .tag {
+      color: rgba(0,255,65,0.6);
+      font-size: 11px;
+      letter-spacing: 5px;
+    }
+
+    /* 距离标签 */
+    #dist-label {
+      color: rgba(255,255,255,0.35);
+      font-size: 12px;
+      letter-spacing: 5px;
+      margin-bottom: 10px;
+    }
+
+    /* 距离数字 */
+    #dist-value {
+      font-size: clamp(52px, 11vw, 108px);
+      font-weight: 900;
+      color: #fff;
+      line-height: 1;
+      text-shadow:
+        0 0 20px rgba(0,255,65,0.9),
+        0 0 50px rgba(0,255,65,0.5),
+        0 0 90px rgba(0,255,65,0.2);
+      letter-spacing: -2px;
+      font-variant-numeric: tabular-nums;
+      min-height: 1.1em;
+    }
+
+    #dist-unit {
+      color: rgba(0,255,65,0.75);
+      font-size: clamp(14px, 2.5vw, 20px);
+      letter-spacing: 3px;
+      margin-top: 8px;
+      margin-bottom: 28px;
+    }
+
+    /* 分割线 */
+    .divider {
+      width: 100%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(0,255,65,0.2), transparent);
+      margin-bottom: 28px;
+    }
+
+    /* 安慰语 */
+    #comfort-text {
+      color: rgba(255,255,255,0.88);
+      font-size: clamp(15px, 2.8vw, 21px);
+      line-height: 1.9;
+      letter-spacing: 1px;
+      min-height: 3em;
+    }
+    #comfort-text.reveal { animation: type-reveal 0.6s ease both; }
+    @keyframes type-reveal {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* 轮播小语 */
+    #secondary-wrap {
+      margin-top: 22px;
+      min-height: 22px;
+      transition: opacity 0.5s;
+    }
+    #secondary-msg {
+      color: rgba(0,255,65,0.5);
+      font-size: 12px;
+      letter-spacing: 3px;
+      transition: opacity 0.5s;
+    }
+
+    /* 底部 LIVE 标 */
+    .live-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 28px;
+    }
+    .live-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: blink 1.6s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.15} }
+    .live-text {
+      color: rgba(0,255,65,0.45);
+      font-size: 11px;
+      letter-spacing: 4px;
+    }
+
+    /* ── 角落装饰 ── */
+    .corner {
+      position: fixed;
+      width: 40px; height: 40px;
+      z-index: 6;
+      opacity: 0.3;
+    }
+    .corner.tl { top: 16px; left: 16px;
+      border-top: 1px solid var(--green); border-left: 1px solid var(--green); }
+    .corner.tr { top: 16px; right: 16px;
+      border-top: 1px solid var(--green); border-right: 1px solid var(--green); }
+    .corner.bl { bottom: 16px; left: 16px;
+      border-bottom: 1px solid var(--green); border-left: 1px solid var(--green); }
+    .corner.br { bottom: 16px; right: 16px;
+      border-bottom: 1px solid var(--green); border-right: 1px solid var(--green); }
+  </style>
+</head>
+<body>
+
+<canvas id="matrixCanvas"></canvas>
+<div id="scanline"></div>
+
+<!-- 角落装饰 -->
+<div class="corner tl"></div>
+<div class="corner tr"></div>
+<div class="corner bl"></div>
+<div class="corner br"></div>
+
+<audio id="bgMusic" src="music.mp3" loop></audio>
+
+<div id="ui">
+  <!-- 开始按钮 -->
+  <div id="startBtn">
+    <div class="ring"><span class="arrow">▶</span></div>
+    <span class="hint">点击开启</span>
+  </div>
+
+  <!-- 定位中 -->
+  <div id="loading">
+    <div class="loading-text">正在计算距离</div>
+    <div class="loading-bar"></div>
+  </div>
+
+  <!-- 主卡片 -->
+  <div id="card">
+    <div class="card-header">
+      <div class="line"></div>
+      <div class="dot"></div>
+      <div class="tag">DISTANCE · SIGNAL</div>
+      <div class="dot"></div>
+      <div class="line right"></div>
+    </div>
+
+    <div id="dist-label">你与我的直线距离</div>
+    <div id="dist-value">—</div>
+    <div id="dist-unit"></div>
+
+    <div class="divider"></div>
+
+    <div id="comfort-text"></div>
+    <div id="secondary-wrap"><div id="secondary-msg"></div></div>
+
+    <div class="live-row">
+      <div class="live-dot"></div>
+      <span class="live-text">实时定位</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════
+//  矩阵雨
+// ════════════════════════════════════════════
+const canvas = document.getElementById('matrixCanvas');
+const ctx    = canvas.getContext('2d');
+
+let W = canvas.width  = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+
+const CHARS =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' +
+  '0123456789' +
+  'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン' +
+  '你我他她想念距离相遇思念山河万里此刻';
+
+const COL_W   = 16;
+const FONT_SZ = 14;
+let cols  = Math.floor(W / COL_W);
+let drops = Array.from({ length: cols }, () => Math.random() * -80);
+
+// 每列字符颜色状态（0-1 = green, >0.95 = white flash）
+function rndChar() { return CHARS[Math.floor(Math.random() * CHARS.length)]; }
+
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.font = `${FONT_SZ}px monospace`;
+
+  for (let i = 0; i < drops.length; i++) {
+    const y = drops[i] * FONT_SZ;
+    const r = Math.random();
+
+    if (r > 0.97)       ctx.fillStyle = '#ffffff';
+    else if (r > 0.85)  ctx.fillStyle = `rgba(180,255,120,${Math.random()*0.4+0.5})`;
+    else                ctx.fillStyle = `rgba(0,255,65,${Math.random()*0.4+0.25})`;
+
+    ctx.fillText(rndChar(), i * COL_W, y);
+
+    if (y > H && Math.random() > 0.975) drops[i] = 0;
+    drops[i] += 0.55;
+  }
+}
+
+(function loop() { requestAnimationFrame(loop); drawMatrix(); })();
+
+window.addEventListener('resize', () => {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cols  = Math.floor(W / COL_W);
+  drops = Array.from({ length: cols }, () => Math.random() * -80);
+});
+
+
+// ════════════════════════════════════════════
+//  我的坐标
+// ════════════════════════════════════════════
+const MY_LAT = 35.6467;
+const MY_LON = 114.5919;
+
+
+// ════════════════════════════════════════════
+//  Haversine 公式（返回米）
+// ════════════════════════════════════════════
+function haversine(lat1, lon1, lat2, lon2) {
+  const R  = 6371000;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const a  = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+
+// ════════════════════════════════════════════
+//  距离文案
+// ════════════════════════════════════════════
+function getComfort(meters) {
+  if (meters < 50) return {
+    main: '你就站在我身边，近得能听见彼此的心跳。',
+    subs: ['原来你一直都在', '此刻，世界只剩我们两个', '不需要任何距离']
+  };
+  if (meters < 500) return {
+    main: '咫尺之间，思念还没来得及出发，你已经在眼前了。',
+    subs: ['几步之遥，心早已先到', '这么近，有没有想过来找我', '触手可及，是最珍贵的距离']
+  };
+  if (meters < 5000) return {
+    main: '同一座城市里，我们呼吸着同一片空气，却各自走在不同的街道上。',
+    subs: ['同城不同街，却像两个世界', '城市那么大，你在哪个角落', '一条街的距离，装满了多少想念']
+  };
+  if (meters < 50000) return {
+    main: '隔了一段路，风替我走过去，把这份心意带到你面前。',
+    subs: ['距离是路，思念是桥', '不算太远，但已经很想', '风会替我，把话带到你耳边']
+  };
+  if (meters < 300000) return {
+    main: '跨越了几座城，你依然住在我心里最近的地方，一步都没离开过。',
+    subs: ['一列高铁的距离，抵不过一次回头', '想你，从未因距离减少一分', '城与城之间，装不下太多思念']
+  };
+  if (meters < 1000000) return {
+    main: '千里之外，每一阵风都是我在轻声呼唤你的名字。',
+    subs: ['月亮是我们共同的邮差', '走了这么远，心里装的还是你', '相隔千里，思念不打折']
+  };
+  if (meters < 5000000) return {
+    main: '跨越了无数座山川，你在那头，我在这头，但牵挂从未中断。',
+    subs: ['再远的路，也抵不过一颗心', '星星是我们之间最短的直线', '世界那么大，心里只有你一个']
+  };
+  return {
+    main: '天涯海角，距离丈量不了的，是两颗心之间的温度。',
+    subs: ['万里之外，你依然是我心里最近的人', '再远也无法改变牵挂的重量', '隔着整个世界，思念从未消失']
+  };
+}
+
+
+// ════════════════════════════════════════════
+//  格式化距离
+// ════════════════════════════════════════════
+function formatDist(meters) {
+  if (meters < 1000) {
+    return { value: String(Math.round(meters)), isFloat: false, unit: '米' };
+  }
+  const km = meters / 1000;
+  if (km < 10)  return { value: km.toFixed(2),               isFloat: true,  unit: '公里' };
+  if (km < 100) return { value: km.toFixed(1),               isFloat: true,  unit: '公里' };
+  return { value: String(Math.round(km)),                     isFloat: false, unit: '公里' };
+}
+
+
+// ════════════════════════════════════════════
+//  数字滚动动画
+// ════════════════════════════════════════════
+function countUp(target, isFloat, unit, onDone) {
+  const el = document.getElementById('dist-value');
+  const unitEl = document.getElementById('dist-unit');
+  unitEl.textContent = unit;
+
+  const dur  = 2800;
+  const tNum = parseFloat(target.replace(/,/g, ''));
+  const decs = isFloat ? (target.split('.')[1] || '').length : 0;
+  const t0   = performance.now();
+
+  function step(now) {
+    const p = Math.min((now - t0) / dur, 1);
+    const e = 1 - Math.pow(1 - p, 4); // ease-out quart
+    const v = tNum * e;
+    el.textContent = isFloat
+      ? v.toFixed(decs)
+      : Math.round(v).toLocaleString();
+    if (p < 1) requestAnimationFrame(step);
+    else { el.textContent = isFloat ? tNum.toFixed(decs) : Math.round(tNum).toLocaleString(); onDone?.(); }
+  }
+  requestAnimationFrame(step);
+}
+
+
+// ════════════════════════════════════════════
+//  次要信息轮播
+// ════════════════════════════════════════════
+let msgList = [], msgIdx = 0;
+
+function rotateSubs() {
+  if (!msgList.length) return;
+  const el = document.getElementById('secondary-msg');
+  const wr = document.getElementById('secondary-wrap');
+  wr.style.opacity = '0';
+  setTimeout(() => {
+    el.textContent = '— ' + msgList[msgIdx % msgList.length] + ' —';
+    wr.style.opacity = '1';
+    msgIdx++;
+  }, 450);
+}
+
+
+// ════════════════════════════════════════════
+//  展示结果
+// ════════════════════════════════════════════
+function showResult(meters) {
+  const { value, isFloat, unit } = formatDist(meters);
+  const comfort = getComfort(meters);
+  msgList = comfort.subs;
+
+  document.getElementById('loading').style.display = 'none';
+
+  const card = document.getElementById('card');
+  card.style.display = 'flex';
+
+  // 数字滚动
+  countUp(value, isFloat, unit, () => {
+    // 数字结束后显示安慰语
+    const ct = document.getElementById('comfort-text');
+    ct.textContent = comfort.main;
+    ct.classList.add('reveal');
+    // 再延迟后开始轮播
+    setTimeout(() => { rotateSubs(); setInterval(rotateSubs, 4500); }, 600);
+  });
+}
+
+
+// ════════════════════════════════════════════
+//  定位失败 fallback
+// ════════════════════════════════════════════
+function showFallback() {
+  document.getElementById('loading').style.display = 'none';
+
+  const card = document.getElementById('card');
+  card.style.display = 'flex';
+
+  document.getElementById('dist-label').textContent = '无法确定坐标';
+  document.getElementById('dist-value').textContent = '∞';
+  document.getElementById('dist-unit').textContent  = '';
+
+  const ct = document.getElementById('comfort-text');
+  ct.textContent = '位置无法确认，但思念从不需要坐标。\n你在哪里，心就飞向哪里。';
+  ct.classList.add('reveal');
+
+  msgList = ['连地图都找不到你，但心知道方向', '距离可以隐藏，牵挂无法丢失', '无论天涯海角，都是思念的彼岸'];
+  setTimeout(() => { rotateSubs(); setInterval(rotateSubs, 4500); }, 800);
+}
+
+
+// ════════════════════════════════════════════
+//  开始按钮
+// ════════════════════════════════════════════
+document.getElementById('startBtn').addEventListener('click', () => {
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('bgMusic').play().catch(() => {});
+  document.getElementById('loading').style.display = 'flex';
+
+  if (!navigator.geolocation) { showFallback(); return; }
+
+  navigator.geolocation.getCurrentPosition(
+    pos => showResult(haversine(pos.coords.latitude, pos.coords.longitude, MY_LAT, MY_LON)),
+    _   => showFallback(),
+    { timeout: 12000, enableHighAccuracy: false, maximumAge: 60000 }
+  );
+});
+</script>
+</body>
+</html>
